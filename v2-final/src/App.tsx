@@ -1,234 +1,231 @@
-import { useState } from "react";
-import {
-  Clock,
-  DoorClosed,
-  CheckCircle2,
-  XCircle,
-  AlertTriangle,
-  CalendarDays,
-  RotateCcw,
-} from "lucide-react";
-import { checkAvailability, formatTime, type AvailabilityResult } from "@/lib/availability";
+import { useState, type FormEvent } from "react";
+import { AlertTriangle, Ban, CheckCircle2, Clock, Users, XCircle } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
+import { ROOMS } from "./lib/rooms";
+import { filterRooms } from "./lib/filters";
+import { checkRoomAvailability } from "./lib/roomAvailability";
+import { formatTime } from "./lib/availability";
+import type { AvailabilityResult } from "./lib/availability";
 
-const FIXED_NOW = 540;
-const FIXED_BOOKINGS: [number, number][] = [[600, 660]];
+const FIXED_NOW = 540; // 09:00, fixed current time in minutes after midnight
+const EQUIPMENT_OPTIONS = ["projector", "whiteboard", "microphone", "computers"];
+
+const RESULT_STYLE: Record<
+  AvailabilityResult["status"],
+  { box: string; Icon: LucideIcon; title: string }
+> = {
+  available: { box: "border-green-300 bg-green-50 text-green-800", Icon: CheckCircle2, title: "Available" },
+  unavailable: { box: "border-red-300 bg-red-50 text-red-800", Icon: XCircle, title: "Not available" },
+  invalid: { box: "border-amber-300 bg-amber-50 text-amber-800", Icon: AlertTriangle, title: "Check your input" },
+};
 
 export default function App() {
-  const [startInput, setStartInput] = useState("");
-  const [endInput, setEndInput] = useState("");
-  const [blocked, setBlocked] = useState(false);
+  const [attendeesText, setAttendeesText] = useState("1");
+  const [equipment, setEquipment] = useState<string[]>([]);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [start, setStart] = useState("");
+  const [end, setEnd] = useState("");
   const [result, setResult] = useState<AvailabilityResult | null>(null);
 
-  const handleCheck = () => {
-    setResult(
-      checkAvailability(startInput, endInput, {
-        now: FIXED_NOW,
-        blocked,
-        bookings: FIXED_BOOKINGS,
-      })
-    );
-  };
+  const attendees = Math.max(1, parseInt(attendeesText, 10) || 1);
+  const matching = filterRooms(ROOMS, { attendees, equipment });
+  const selectedRoom = matching.find((r) => r.id === selectedId) ?? null;
 
-  const handleReset = () => {
-    setStartInput("");
-    setEndInput("");
-    setBlocked(false);
+  // F5: any change of room, filters or times clears the old result
+  function changeAttendees(value: string) {
+    setAttendeesText(value);
     setResult(null);
-  };
+  }
+  function toggleEquipment(item: string) {
+    setEquipment((prev) =>
+      prev.includes(item) ? prev.filter((e) => e !== item) : [...prev, item]
+    );
+    setResult(null);
+  }
+  function selectRoom(id: string) {
+    setSelectedId(id);
+    setResult(null);
+  }
+  function changeStart(value: string) {
+    setStart(value);
+    setResult(null);
+  }
+  function changeEnd(value: string) {
+    setEnd(value);
+    setResult(null);
+  }
 
-  const clearResult = () => result && setResult(null);
+  function handleCheck(e: FormEvent) {
+    e.preventDefault();
+    if (!selectedRoom) {
+      setResult({ status: "invalid", message: "Please select a room first." });
+      return;
+    }
+    setResult(checkRoomAvailability(selectedRoom, start, end, FIXED_NOW));
+  }
 
-  const startMin = parseInt(startInput, 10);
-  const endMin = parseInt(endInput, 10);
-  const startPreview = !isNaN(startMin) && startMin >= 0 && startMin <= 1440 ? formatTime(startMin) : "—";
-  const endPreview = !isNaN(endMin) && endMin >= 0 && endMin <= 1440 ? formatTime(endMin) : "—";
-
-  const resultStyles: Record<AvailabilityResult["status"], string> = {
-    available: "border-emerald-200 bg-emerald-50",
-    unavailable: "border-rose-200 bg-rose-50",
-    invalid: "border-amber-200 bg-amber-50",
-  };
-
-  const resultIcon: Record<AvailabilityResult["status"], typeof CheckCircle2> = {
-    available: CheckCircle2,
-    unavailable: XCircle,
-    invalid: AlertTriangle,
-  };
-
-  const resultIconColor: Record<AvailabilityResult["status"], string> = {
-    available: "text-emerald-600",
-    unavailable: "text-rose-600",
-    invalid: "text-amber-600",
-  };
+  const style = result ? RESULT_STYLE[result.status] : null;
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-100 via-blue-50 to-slate-100 px-4 py-8 sm:py-12">
-      <div className="mx-auto max-w-lg">
-        {/* Header */}
-        <div className="mb-6 text-center">
-          <div className="mb-3 inline-flex h-14 w-14 items-center justify-center rounded-2xl bg-blue-600 shadow-lg shadow-blue-600/30">
-            <DoorClosed className="h-7 w-7 text-white" strokeWidth={2} />
-          </div>
-          <h1 className="text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl">
-            Room 301
-          </h1>
-          <p className="mt-1 text-sm text-slate-500">
-            Smart Campus Room Availability Checker
-          </p>
-        </div>
+    <div className="min-h-screen bg-slate-50 px-4 py-8">
+      <div className="mx-auto max-w-xl">
+        <h1 className="text-2xl font-bold text-slate-900">Room Availability</h1>
+        <p className="mb-4 text-sm text-slate-500">Smart Campus Room Availability Checker</p>
 
-        {/* Main Card */}
-        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-xl shadow-slate-200/60 sm:p-7">
-          {/* Current Time */}
-          <div className="mb-5 flex items-center justify-between rounded-xl bg-slate-50 px-4 py-3">
-            <div className="flex items-center gap-2 text-sm font-medium text-slate-600">
-              <Clock className="h-4 w-4 text-blue-600" />
-              Current Time
-            </div>
-            <span className="font-mono text-lg font-semibold text-slate-900">
-              {formatTime(FIXED_NOW)}
+        <div className="space-y-5 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="flex items-center justify-between rounded-lg bg-slate-100 px-3 py-2 text-sm">
+            <span className="flex items-center gap-2 text-slate-600">
+              <Clock size={16} /> Current time
             </span>
+            <span className="font-mono font-semibold">{formatTime(FIXED_NOW)}</span>
           </div>
 
-          {/* Blocked Toggle */}
-          <div className="mb-6 flex items-center justify-between">
-            <div>
-              <span className="text-sm font-medium text-slate-700">Room is blocked</span>
-              <p className="text-xs text-slate-400">When on, all requests are unavailable</p>
-            </div>
-            <button
-              type="button"
-              role="switch"
-              aria-checked={blocked}
-              onClick={() => {
-                setBlocked((prev) => !prev);
-                clearResult();
-              }}
-              className={`relative inline-flex h-6 w-11 flex-shrink-0 items-center rounded-full transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${
-                blocked ? "bg-rose-500" : "bg-slate-300"
-              }`}
-            >
-              <span
-                className={`inline-block h-4 w-4 transform rounded-full bg-white shadow-sm transition-transform duration-200 ${
-                  blocked ? "translate-x-6" : "translate-x-1"
-                }`}
-              />
-            </button>
-          </div>
-
-          {/* Inputs */}
-          <div className="mb-5 grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <div>
-              <label htmlFor="start" className="mb-1.5 block text-sm font-medium text-slate-700">
-                Start <span className="text-slate-400 font-normal">(minutes)</span>
-              </label>
+          {/* Filters */}
+          <fieldset className="space-y-3">
+            <legend className="text-sm font-semibold text-slate-700">Requirements</legend>
+            <label className="block text-sm text-slate-600">
+              Attendees
               <input
-                id="start"
-                type="text"
-                inputMode="numeric"
-                value={startInput}
-                onChange={(e) => {
-                  setStartInput(e.target.value);
-                  clearResult();
-                }}
-                placeholder="e.g. 555"
-                className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-slate-900 placeholder-slate-400 transition focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                type="number"
+                min={1}
+                value={attendeesText}
+                onChange={(e) => changeAttendees(e.target.value)}
+                className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2"
               />
-              <p className="mt-1 text-xs text-slate-400">
-                = <span className="font-mono font-medium text-slate-500">{startPreview}</span>
-              </p>
+            </label>
+            <div className="flex flex-wrap gap-3 text-sm text-slate-600">
+              {EQUIPMENT_OPTIONS.map((item) => (
+                <label key={item} className="flex items-center gap-1.5">
+                  <input
+                    type="checkbox"
+                    checked={equipment.includes(item)}
+                    onChange={() => toggleEquipment(item)}
+                  />
+                  <span className="capitalize">{item}</span>
+                </label>
+              ))}
             </div>
-            <div>
-              <label htmlFor="end" className="mb-1.5 block text-sm font-medium text-slate-700">
-                End <span className="text-slate-400 font-normal">(minutes)</span>
-              </label>
-              <input
-                id="end"
-                type="text"
-                inputMode="numeric"
-                value={endInput}
-                onChange={(e) => {
-                  setEndInput(e.target.value);
-                  clearResult();
-                }}
-                placeholder="e.g. 615"
-                className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-slate-900 placeholder-slate-400 transition focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
-              />
-              <p className="mt-1 text-xs text-slate-400">
-                = <span className="font-mono font-medium text-slate-500">{endPreview}</span>
-              </p>
-            </div>
-          </div>
+          </fieldset>
 
-          {/* Buttons */}
-          <div className="flex gap-3">
+          {/* Room list */}
+          <section>
+            <div className="mb-2 flex items-center justify-between text-sm">
+              <h2 className="font-semibold text-slate-700">Rooms</h2>
+              <span className="text-slate-400">{matching.length} matches</span>
+            </div>
+
+            {matching.length === 0 ? (
+              <p
+                role="status"
+                className="rounded-lg border border-dashed border-slate-300 p-4 text-center text-sm text-slate-600"
+              >
+                No rooms match your requirements. Try fewer attendees or less equipment.
+              </p>
+            ) : (
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                {matching.map((room) => {
+                  const selected = room.id === selectedId;
+                  return (
+                    <button
+                      key={room.id}
+                      type="button"
+                      onClick={() => selectRoom(room.id)}
+                      aria-pressed={selected}
+                      className={`rounded-lg border p-3 text-left text-sm transition ${
+                        selected
+                          ? "border-blue-500 ring-2 ring-blue-300"
+                          : "border-slate-200 hover:border-slate-400"
+                      }`}
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <span className="font-semibold text-slate-900">{room.name}</span>
+                        {room.blocked && (
+                          <span className="flex items-center gap-1 text-xs font-medium text-red-600">
+                            <Ban size={12} /> Blocked
+                          </span>
+                        )}
+                      </div>
+                      <div className="mt-1 flex items-center gap-1 text-xs text-slate-500">
+                        <Users size={12} /> Capacity {room.capacity}
+                      </div>
+                      <div className="mt-1 text-xs capitalize text-slate-500">
+                        {room.equipment.join(" · ")}
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </section>
+
+          {/* Existing bookings of the chosen room (read-only) */}
+          {selectedRoom && (
+            <section className="text-sm">
+              <h2 className="mb-1 font-semibold text-slate-700">
+                Existing bookings <span className="font-normal text-slate-400">(read-only)</span>
+              </h2>
+              {selectedRoom.bookings.length === 0 ? (
+                <p className="text-slate-500">No bookings for {selectedRoom.name}.</p>
+              ) : (
+                <div className="flex flex-wrap gap-2">
+                  {selectedRoom.bookings.map(([s, e]) => (
+                    <span key={`${s}-${e}`} className="rounded-full bg-blue-50 px-3 py-1 text-xs text-blue-700">
+                      {formatTime(s)} – {formatTime(e)}
+                    </span>
+                  ))}
+                </div>
+              )}
+            </section>
+          )}
+
+          {/* Time form */}
+          <form onSubmit={handleCheck} className="space-y-3">
+            <div className="grid grid-cols-2 gap-3">
+              <label className="block text-sm text-slate-600">
+                Start (minutes)
+                <input
+                  inputMode="numeric"
+                  value={start}
+                  onChange={(e) => changeStart(e.target.value)}
+                  placeholder="e.g. 590"
+                  className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2"
+                />
+              </label>
+              <label className="block text-sm text-slate-600">
+                End (minutes)
+                <input
+                  inputMode="numeric"
+                  value={end}
+                  onChange={(e) => changeEnd(e.target.value)}
+                  placeholder="e.g. 650"
+                  className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2"
+                />
+              </label>
+            </div>
+            <p className="text-xs text-slate-400">Minutes after midnight (590 = 09:50). Maximum 120 minutes.</p>
             <button
-              type="button"
-              onClick={handleCheck}
-              className="flex-1 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white shadow-md shadow-blue-600/25 transition hover:bg-blue-700 active:scale-[0.98] focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+              type="submit"
+              className="w-full rounded-lg bg-blue-600 px-4 py-2 font-semibold text-white hover:bg-blue-700"
             >
-              Check Availability
+              Check availability
             </button>
-            <button
-              type="button"
-              onClick={handleReset}
-              aria-label="Reset"
-              className="rounded-lg border border-slate-300 px-4 py-2.5 text-slate-600 transition hover:bg-slate-50 active:scale-[0.98] focus:outline-none focus:ring-2 focus:ring-slate-400 focus:ring-offset-2"
-            >
-              <RotateCcw className="h-4 w-4" />
-            </button>
-          </div>
+          </form>
 
           {/* Result */}
-          {result && (
+          {result && style && (
             <div
-              className={`mt-5 flex items-start gap-3 rounded-xl border px-4 py-3.5 animate-slide-in-from-bottom-2 ${resultStyles[result.status]}`}
+              role="status"
+              aria-live="polite"
+              className={`flex items-start gap-3 rounded-lg border p-3 text-sm ${style.box}`}
             >
-              {(() => {
-                const Icon = resultIcon[result.status];
-                return <Icon className={`mt-0.5 h-5 w-5 flex-shrink-0 ${resultIconColor[result.status]}`} />;
-              })()}
+              <style.Icon size={20} className="mt-0.5 shrink-0" />
               <div>
-                <p className={`text-sm font-semibold ${resultIconColor[result.status]}`}>
-                  {result.status === "available"
-                    ? "Available"
-                    : result.status === "unavailable"
-                      ? "Unavailable"
-                      : "Invalid input"}
-                </p>
-                <p className="mt-0.5 text-sm text-slate-600">{result.message}</p>
+                <div className="font-semibold">{style.title}</div>
+                <div>{result.message}</div>
               </div>
             </div>
           )}
-
-          {/* Divider */}
-          <div className="my-6 border-t border-slate-100" />
-
-          {/* Existing Bookings */}
-          <div>
-            <div className="mb-2.5 flex items-center gap-2">
-              <CalendarDays className="h-4 w-4 text-slate-400" />
-              <span className="text-sm font-medium text-slate-600">Existing Bookings</span>
-              <span className="text-xs text-slate-400">(read-only)</span>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              {FIXED_BOOKINGS.map(([bStart, bEnd], i) => (
-                <span
-                  key={i}
-                  className="inline-flex items-center gap-1.5 rounded-lg bg-slate-100 px-3 py-1.5 text-sm font-medium text-slate-600"
-                >
-                  <span className="h-1.5 w-1.5 rounded-full bg-blue-500" />
-                  {formatTime(bStart)} – {formatTime(bEnd)}
-                </span>
-              ))}
-            </div>
-          </div>
         </div>
-
-        {/* Footer hint */}
-        <p className="mt-4 text-center text-xs text-slate-400">
-          Times are in minutes after midnight (0–1440). Max duration: 120 minutes.
-        </p>
       </div>
     </div>
   );
