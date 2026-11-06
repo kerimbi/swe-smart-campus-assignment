@@ -9,7 +9,13 @@ export interface AvailabilityConfig {
   now: number;
   blocked: boolean;
   bookings: [number, number][];
+  roomName?: string;
 }
+
+export const MAX_DURATION_MINUTES = 120;
+export const MINUTES_PER_DAY = 1440;
+const DEFAULT_ROOM_NAME = "This room";
+const INTEGER_RE = /^-?\d+$/;
 
 export function formatTime(minutes: number): string {
   const h = Math.floor(minutes / 60);
@@ -17,60 +23,77 @@ export function formatTime(minutes: number): string {
   return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
 }
 
-const INTEGER_RE = /^-?\d+$/;
+function makeResult(status: AvailabilityStatus, message: string): AvailabilityResult {
+  return { status, message };
+}
 
-export function checkAvailability(
-  startInput: string,
-  endInput: string,
-  config: AvailabilityConfig
-): AvailabilityResult {
-  const { now, blocked, bookings } = config;
+type ParsedTimes =
+  | { ok: true; start: number; end: number }
+  | { ok: false; result: AvailabilityResult };
 
+function fail(message: string): ParsedTimes {
+  return { ok: false, result: makeResult("invalid", message) };
+}
+
+function parseAndValidate(startInput: string, endInput: string, now: number): ParsedTimes {
   const startTrim = startInput.trim();
   const endTrim = endInput.trim();
 
   if (startTrim === "" || endTrim === "") {
-    return { status: "invalid", message: "Please enter both start and end times." };
+    return fail("Please enter both start and end times.");
   }
-
   if (!INTEGER_RE.test(startTrim) || !INTEGER_RE.test(endTrim)) {
-    return { status: "invalid", message: "Start and end must be whole numbers (minutes after midnight)." };
+    return fail("Start and end must be whole numbers (minutes after midnight).");
   }
 
   const start = parseInt(startTrim, 10);
   const end = parseInt(endTrim, 10);
 
   if (start >= end) {
-    return { status: "invalid", message: "Start time must be earlier than end time." };
+    return fail("Start time must be earlier than end time.");
   }
-
-  if (start < 0 || end > 1440) {
-    return { status: "invalid", message: "Times must be between 0 and 1440 minutes (00:00–24:00)." };
+  if (start < 0 || end > MINUTES_PER_DAY) {
+    return fail(`Times must be between 0 and ${MINUTES_PER_DAY} minutes (00:00–24:00).`);
   }
-
   if (start <= now) {
-    return {
-      status: "invalid",
-      message: `Start time must be after the current time (${formatTime(now)}).`,
-    };
+    return fail(`Start time must be after the current time (${formatTime(now)}).`);
   }
+  if (end - start > MAX_DURATION_MINUTES) {
+    return fail(`Duration must not exceed ${MAX_DURATION_MINUTES} minutes.`);
+  }
+  return { ok: true, start, end };
+}
 
-  if (end - start > 120) {
-    return { status: "invalid", message: "Duration must not exceed 120 minutes." };
-  }
+function findOverlap(
+  start: number,
+  end: number,
+  bookings: [number, number][]
+): [number, number] | undefined {
+  return bookings.find(([bStart, bEnd]) => start < bEnd && bStart < end);
+}
+
+export function checkAvailability(
+  startInput: string,
+  endInput: string,
+  config: AvailabilityConfig
+): AvailabilityResult {
+  const { now, blocked, bookings, roomName = DEFAULT_ROOM_NAME } = config;
+
+  const parsed = parseAndValidate(startInput, endInput, now);
+  if (!parsed.ok) return parsed.result;
+  const { start, end } = parsed;
 
   if (blocked) {
-    return { status: "unavailable", message: "Room 301 is blocked and unavailable." };
+    return makeResult("unavailable", `${roomName} is blocked and unavailable.`);
   }
 
-  for (const [bStart, bEnd] of bookings) {
-    if (start < bEnd && bStart < end) {
-      return {
-        status: "unavailable",
-        message: `Overlaps existing booking ${formatTime(bStart)}–${formatTime(bEnd)}.`,
-      };
-    }
+  const conflict = findOverlap(start, end, bookings);
+  if (conflict) {
+    return makeResult(
+      "unavailable",
+      `Overlaps existing booking ${formatTime(conflict[0])}–${formatTime(conflict[1])}.`
+    );
   }
 
-  return { status: "available", message: "Room 301 is available for the requested time." };
+  return makeResult("available", `${roomName} is available for the requested time.`);
 }
